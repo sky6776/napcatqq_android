@@ -1,0 +1,17 @@
+# Force LF for everything executed on Linux (WSL builds, GitHub Actions).
+# Windows-side tools (PowerShell/CMD) tolerate LF, so a blanket LF default is
+# the safe choice; only .cmd/.bat really want CRLF.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binaries
+*.jar binary
+*.png binary
+*.ico binary
+*.7z binary
+*.zst binary
+*.zip binary
+*.deb binary
+*.apk binary
+app/src/main/assets/runtime-host/** binary

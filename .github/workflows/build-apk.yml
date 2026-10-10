@@ -1,0 +1,130 @@
+name: Build offline APK
+
+# Pulls every runtime component from its official source, assembles
+# napcathost-runtime-arm64-v1.tar.zst, then builds the offline APK.
+# The resulting APK embeds Tencent QQ and NapCatQQ - private sideload use only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Runtime profile (current | device)'
+        type: choice
+        options: [current, device]
+        default: current
+      qq_deb_url:
+        description: '(device profile) URL of the Linux QQ arm64 .deb to build with'
+        type: string
+        default: ''
+  push:
+    branches: [ main, master ]
+
+# Publishing a release needs write access to releases/tags.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime-build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mmdebstrap qemu-user-static proot zstd xz-utils unzip curl python3
+
+      - name: Fetch caller-provided QQ deb (device profile)
+        if: inputs.qq_deb_url != ''
+        env:
+          QQ_DEB_URL: ${{ inputs.qq_deb_url }}
+        run: |
+          curl -fL --retry 3 -o "$RUNNER_TEMP/qq.deb" "$QQ_DEB_URL"
+          echo "NAPCATHOST_QQ_DEB=$RUNNER_TEMP/qq.deb" >> "$GITHUB_ENV"
+
+      - name: Build runtime archive from official sources
+        env:
+          NAPCATHOST_OUTDIR: ${{ github.workspace }}/runtime-packages
+          NAPCATHOST_PROFILE: ${{ inputs.profile || 'current' }}
+        run: sudo -E bash tools/runtime-build.sh
+
+      - name: Sync checksum into RuntimeInstaller.java
+        run: |
+          python3 - <<'EOF'
+          import hashlib, re
+          archive = 'runtime-packages/napcathost-runtime-arm64-v1.tar.zst'
+          digest = hashlib.sha256(open(archive, 'rb').read()).hexdigest()
+          path = 'app/src/main/java/dev/napcathost/RuntimeInstaller.java'
+          src = open(path, encoding='utf-8').read()
+          new = re.sub(r'(BUNDLED_RUNTIME_SHA256\s*=\s*")[0-9a-f]{64}(")', r'\g<1>' + digest + r'\g<2>', src)
+          assert new != src, 'BUNDLED_RUNTIME_SHA256 constant not found or unchanged'
+          open(path, 'w', encoding='utf-8').write(new)
+          print('RuntimeInstaller.java synced with', digest)
+          EOF
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Build APK
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon --console=plain assembleDebug
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          VERSION=$(python3 -c "import json; print(json.load(open('app/build/outputs/apk/debug/output-metadata.json'))['elements'][0]['versionName'])")
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/NapCatHost-offline-v${VERSION}-ci-debug.apk"
+          sha256sum dist/*.apk runtime-packages/*.tar.zst > dist/SHA256SUMS.txt
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: NapCatHost-offline-apk
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Upload runtime archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: napcathost-runtime-archive
+          path: |
+            runtime-packages/napcathost-runtime-arm64-v1.tar.zst
+            runtime-packages/build-info.json
+            runtime-packages/manifest.json
+          if-no-files-found: error
+
+      # Rolling release: every successful build replaces the previous "latest"
+      # release, so https://github.com/<owner>/<repo>/releases/latest always
+      # serves the newest APK. No version tag needed.
+      - name: Publish rolling release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA7=${GITHUB_SHA::7}
+          python3 - "$SHA7" > release-notes.md <<'EOF'
+          import json, sys
+          bi = json.load(open('runtime-packages/build-info.json', encoding='utf-8'))
+          c = bi['components']
+          print(f"Automated build from commit `{sys.argv[1]}`, runtime built {bi['created']}.")
+          print()
+          print(f"- Profile `{bi['profile']}`: Debian `{c['debian']}` / Linux QQ `{c['linux_qq']}` / NapCatQQ `{c['napcatqq']}` / Xvfb `{c['xvfb']}`")
+          print(f"- Runtime archive SHA-256 `{bi['sha256']}` ({bi['size']} bytes)")
+          print()
+          print("See `SHA256SUMS.txt` for checksums. This release is overwritten by every successful CI build.")
+          EOF
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest \
+            --target "$GITHUB_SHA" \
+            --title "NapCatHost offline build ($SHA7)" \
+            --notes-file release-notes.md \
+            dist/*.apk dist/SHA256SUMS.txt \
+            runtime-packages/napcathost-runtime-arm64-v1.tar.zst \
+            runtime-packages/build-info.json \
+            runtime-packages/manifest.json

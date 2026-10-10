@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NapCatHost</string>
+    <string name="notification_channel_name">NapCat 前台服务</string>
+    <string name="notification_channel_description">保持 Linux QQ 和 NapCat 运行</string>
+</resources>

@@ -1,0 +1,20 @@
+# Build outputs and caches
+.gradle/
+build/
+app/build/
+dist/
+
+# Machine-specific SDK/toolchain paths
+local.properties
+
+# Large binaries: fetch or assemble via tools/build-runtime-from-scratch.ps1
+# (tools/runtime-build.sh) instead of committing them.
+runtime-packages/*.tar.zst
+*.7z
+.downloads-cache/
+
+# IDE / OS noise
+.idea/
+*.iml
+.DS_Store
+Thumbs.db

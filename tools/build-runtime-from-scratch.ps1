@@ -15,7 +15,7 @@
 #   -GhMirror <url>                NAPCATHOST_GH_MIRROR (e.g. https://gh-proxy.example/)
 #
 # WSL requirements (one-time, inside the distro as root):
-#   apt-get install -y mmdebstrap qemu-user-static proot zstd xz-utils unzip curl python3
+#   apt-get install -y mmdebstrap qemu-user-static binfmt-support proot zstd xz-utils unzip curl python3
 
 param(
     [string]$Distro = 'Ubuntu',
@@ -68,7 +68,7 @@ if ($GhMirror) { $bashEnv += " NAPCATHOST_GH_MIRROR='$GhMirror'" }
 $bashCommand = "cd '$wslTools' && $bashEnv bash ./runtime-build.sh"
 Write-Output "Running: wsl -d $Distro -u root -- bash -lc <runtime-build.sh>"
 
-# --- run the build (as root; mmdebstrap --qemu needs chroot) ------------------
+# --- run the build (as root; mmdebstrap chroots into the arm64 rootfs) --------
 & $wsl.Source -d $Distro -u root -- bash -lc $bashCommand
 if ($LASTEXITCODE -ne 0) {
     throw "runtime-build.sh failed inside WSL (exit code $LASTEXITCODE). If WSL itself failed to start, enable the 'Virtual Machine Platform' Windows feature and run: wsl --update"

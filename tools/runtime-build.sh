@@ -4,7 +4,10 @@
 #
 # What it does:
 #   1. Creates a Debian arm64 rootfs with mmdebstrap straight from the official
-#      Debian mirrors (configured through qemu-user on x86_64 hosts).
+#      Debian mirrors. Arm64 code executes transparently through the host's
+#      qemu-user-static + binfmt_misc handlers (mmdebstrap has no qemu flag
+#      of its own; root-mode chroots just rely on the kernel dispatching
+#      foreign binaries to qemu).
 #   2. Installs xvfb and the Linux QQ runtime dependencies via proot + qemu.
 #   3. Extracts the official Linux QQ arm64 .deb into /root/Napcat (same layout
 #      the NapCat rootless installer produces) and wires NapCatQQ into QQ.
@@ -12,7 +15,7 @@
 #      and writes runtime-packages/build-info.json and manifest.json.
 #
 # Requirements (Linux / WSL2 / GitHub Actions ubuntu runner, run as root):
-#   mmdebstrap qemu-user-static proot zstd xz-utils unzip curl dpkg-deb python3
+#   mmdebstrap qemu-user-static binfmt-support proot zstd xz-utils unzip curl dpkg-deb python3
 #
 # Profiles (NAPCATHOST_PROFILE, default "current"):
 #   current - QQ 3.2.32-52194 + NapCatQQ 4.18.35, the pairing currently pinned
@@ -89,7 +92,7 @@ NAPCAT_APP_LAUNCHER="$QQ_PREFIX_IN_ROOTFS/opt/QQ/resources/app/app_launcher"
 # ---------------------------------------------------------------------------
 # Preflight
 # ---------------------------------------------------------------------------
-[ "$(id -u)" -eq 0 ] || die "must run as root (mmdebstrap --qemu uses chroot); try: sudo -E $0"
+[ "$(id -u)" -eq 0 ] || die "must run as root (mmdebstrap chroots into the arm64 rootfs); try: sudo -E $0"
 
 for cmd in curl tar zstd mmdebstrap proot dpkg-deb unzip python3; do
   command -v "$cmd" >/dev/null 2>&1 || die "missing command: $cmd (Debian/Ubuntu: apt-get install mmdebstrap qemu-user-static proot zstd xz-utils unzip curl python3)"
@@ -102,6 +105,16 @@ if [ -z "$QEMU" ]; then
   done
 fi
 [ -n "$QEMU" ] && [ -x "$QEMU" ] || die "qemu-aarch64 not found; apt-get install qemu-user-static"
+
+# mmdebstrap runs arm64 binaries inside its chroot through the kernel's
+# binfmt_misc handlers (it has no --qemu flag), so make sure qemu-aarch64 is
+# registered before we get there. arch-test is pulled in by mmdebstrap.
+if command -v update-binfmts >/dev/null 2>&1; then
+  update-binfmts --enable >/dev/null 2>&1 || true
+fi
+if command -v arch-test >/dev/null 2>&1 && ! arch-test arm64; then
+  die "arm64 binaries cannot execute on this host; install qemu-user-static + binfmt-support and enable binfmt_misc (update-binfmts --enable), or run on an arm64 host"
+fi
 
 case "$PROFILE" in
   device)
@@ -211,7 +224,6 @@ if [ ! -d "$ROOTFS/usr" ]; then
     --components="$DEBIAN_COMPONENTS" \
     --include=ca-certificates \
     --aptopt='Acquire::Retries "5"' \
-    --qemu="$QEMU" \
     "$DEBIAN_SUITE" "$WORKDIR/rootfs.tar" \
     "$DEBIAN_MIRROR" "$DEBIAN_SECURITY_MIRROR"
   mkdir -p "$ROOTFS"

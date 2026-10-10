@@ -33,7 +33,10 @@ jobs:
       - name: Install runtime-build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y mmdebstrap qemu-user-static proot zstd xz-utils unzip curl python3
+          sudo apt-get install -y mmdebstrap qemu-user-static binfmt-support proot zstd xz-utils unzip curl python3
+          # mmdebstrap relies on binfmt_misc to run the arm64 rootfs commands
+          # through qemu; make sure the handlers are enabled on this runner.
+          sudo update-binfmts --enable || true
 
       - name: Fetch caller-provided QQ deb (device profile)
         if: inputs.qq_deb_url != ''

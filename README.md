@@ -140,7 +140,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\install-device.p
 要求：WSL2 中装有 Debian/Ubuntu 发行版。一次性准备（在发行版内以 root 执行）：
 
 ```bash
-apt-get install -y mmdebstrap qemu-user-static proot zstd xz-utils unzip curl python3
+apt-get install -y mmdebstrap qemu-user-static binfmt-support proot zstd xz-utils unzip curl python3
 ```
 
 然后在 Windows 侧执行（脚本会自动经 WSL 组装、回填 `manifest.json` 并同步 `RuntimeInstaller.java` 中的校验和）：

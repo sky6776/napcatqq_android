@@ -257,7 +257,12 @@ if [ ! -x "$ROOTFS/usr/bin/xvfb-run" ]; then
       | tr ',' '\n' \
       | sed -e 's/([^)]*)//g' -e 's/[<=(][^)<>]*[)>]//g' \
       | awk -F'|' '{gsub(/^[[:space:]]+|[[:space:]]+$/, "", $1); if ($1 != "" && $1 !~ /:/) print $1}' \
-      | sort -u )
+      | sort -u \
+      | tr '\n' ' ' )
+    # must stay single-line: QQ_DEPS is interpolated verbatim into the
+    # run_rootfs command string, and embedded newlines would make bash treat
+    # every package name after the first as a separate command (exit 127)
+    QQ_DEPS="${QQ_DEPS% }"
     [ -n "$QQ_DEPS" ] || die "failed to parse dependencies from $QQ_DEB"
   else
     log "no QQ .deb available, using the dependency set recorded from the reference environment"
@@ -271,8 +276,10 @@ fontconfig fonts-dejavu-core shared-mime-info"
 
   log "installing packages inside the rootfs (qemu-emulated, this takes a while)"
   run_rootfs "apt-get update"
+  # libasound2t64: the QQ deb's Depends omits ALSA, but the binary links
+  # libasound.so.2 and the sanity check below requires it
   # shellcheck disable=SC2086
-  run_rootfs "apt-get install -y --no-install-recommends xvfb xauth xfonts-base fonts-dejavu-core tzdata shared-mime-info ca-certificates procps psmisc $QQ_DEPS"
+  run_rootfs "apt-get install -y --no-install-recommends xvfb xauth xfonts-base fonts-dejavu-core tzdata shared-mime-info ca-certificates procps psmisc libasound2t64 $QQ_DEPS"
   run_rootfs "apt-get clean && rm -rf /var/lib/apt/lists/*"
 else
   log "xvfb already present, skipping package install"

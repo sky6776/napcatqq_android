@@ -219,13 +219,28 @@ if [ -d "$ROOTFS/usr" ]; then
 fi
 if [ ! -d "$ROOTFS/usr" ]; then
   log "creating Debian $DEBIAN_SUITE arm64 rootfs with mmdebstrap (runs under qemu, be patient)"
+
+  # Ubuntu's debian-archive-keyring predates the Debian 13 (trixie) archive
+  # signing keys (created 2025-03), so apt inside the bootstrap fails with
+  # NO_PUBKEY. Install the current keyring straight from Debian's own pool.
+  KEYRING_POOL="https://deb.debian.org/debian/pool/main/d/debian-archive-keyring"
+  KEYRING_DEB=$(curl -fsSL "$KEYRING_POOL/" | grep -oE 'debian-archive-keyring_[0-9][^"<>]*_all\.deb' | sort -uV | tail -n1)
+  [ -n "$KEYRING_DEB" ] || die "could not find debian-archive-keyring .deb under $KEYRING_POOL"
+  log "installing $KEYRING_DEB (current Debian archive signing keys)"
+  curl -fL --retry 3 -o "$DOWNLOADS/$KEYRING_DEB" "$KEYRING_POOL/$KEYRING_DEB"
+  dpkg -i "$DOWNLOADS/$KEYRING_DEB"
+
   rm -rf "$WORKDIR/rootfs.tar"
+  # mmdebstrap does NOT append "-security" to explicitly passed mirrors (it
+  # only derives <suite>-security automatically when no mirror is given), so
+  # the security suite must be handed over as a one-line sources entry.
   mmdebstrap --architectures=arm64 --variant=minbase \
     --components="$DEBIAN_COMPONENTS" \
     --include=ca-certificates \
     --aptopt='Acquire::Retries "5"' \
     "$DEBIAN_SUITE" "$WORKDIR/rootfs.tar" \
-    "$DEBIAN_MIRROR" "$DEBIAN_SECURITY_MIRROR"
+    "$DEBIAN_MIRROR" \
+    "deb $DEBIAN_SECURITY_MIRROR $DEBIAN_SUITE-security main"
   mkdir -p "$ROOTFS"
   tar --same-owner -C "$ROOTFS" -xf "$WORKDIR/rootfs.tar"
   printf '%s' "$PROFILE" > "$PROFILE_MARKER"

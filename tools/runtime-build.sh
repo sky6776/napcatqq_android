@@ -276,10 +276,18 @@ fontconfig fonts-dejavu-core shared-mime-info"
 
   log "installing packages inside the rootfs (qemu-emulated, this takes a while)"
   run_rootfs "apt-get update"
+  # Standard container practice: refuse service starts from maintainer scripts.
+  printf '#!/bin/sh\nexit 101\n' > "$ROOTFS/usr/sbin/policy-rc.d"
+  chmod 755 "$ROOTFS/usr/sbin/policy-rc.d"
+  # Keep systemd out of the rootfs: its maintainer scripts crash the proot
+  # tracer under qemu (path.c "compare_paths2: Assertion `length2 > 0'"),
+  # and this rootfs only ever runs as a rootless proot guest where systemd
+  # could never boot anyway. dbus-user-session hard-depends on systemd, so
+  # forbid both; dbus then falls back to dbus-session-bus-common.
   # libasound2t64: the QQ deb's Depends omits ALSA, but the binary links
   # libasound.so.2 and the sanity check below requires it
   # shellcheck disable=SC2086
-  run_rootfs "apt-get install -y --no-install-recommends xvfb xauth xfonts-base fonts-dejavu-core tzdata shared-mime-info ca-certificates procps psmisc libasound2t64 $QQ_DEPS"
+  run_rootfs "apt-get install -y --no-install-recommends xvfb xauth xfonts-base fonts-dejavu-core tzdata shared-mime-info ca-certificates procps psmisc libasound2t64 dbus-session-bus-common $QQ_DEPS systemd- dbus-user-session-"
   run_rootfs "apt-get clean && rm -rf /var/lib/apt/lists/*"
 else
   log "xvfb already present, skipping package install"
